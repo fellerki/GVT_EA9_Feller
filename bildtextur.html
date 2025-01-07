@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="css/style.css">
+  <title>GVT - EA9 - Kim Feller</title>
+</head>
+<h1>EA9 - Torustextur - Bildtextur</h1>
+<h2>Graphical Visualisation Technologies</h2>
+<p>Kim Lara Feller, Technische Hochschule Lübeck, Matrikelnummer 331177</p>
+<p><b>Hinweise und Referenzen</b></p>
+<p>Mit Hilfe der Pfeiltasten kann die Kameraperspektive verstellt werden.
+  Der Torus ist mit einer Bildtextur versehen.
+  Die Bilddatei wurde <a href="https://www.freepik.com/premium-photo/abstract-fluid-art-background-turquoise-cerulean-colors-liquid-marble-acrylic-painting-with-cyan-gradient_27832295.html">hier</a> entnommen.
+  Das Bild wurde extern für die Aufgabe entsprechend skaliert (512x512 Pixel), um die Kompatibilität mit WebGL zu gewährleisten.</p>
+
+<a href="prozeduraleTextur.html">Erweiterung der Aufgabe mit prozeduraler Textur</a>
+
+<body>
+<canvas id="glCanvas"></canvas>
+
+<script src="https://cdn.jsdelivr.net/npm/gl-matrix@2.8.1/dist/gl-matrix-min.js"></script>
+
+<script>
+  const canvas = document.getElementById('glCanvas');
+  const gl = canvas.getContext('webgl');
+
+  if (!gl) {
+    alert('WebGL not supported');
+  }
+
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+
+  gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+
+  const vertexShaderSource = `
+        attribute vec3 position;
+        attribute vec2 texcoord;
+
+        uniform mat4 modelViewMatrix;
+        uniform mat4 projectionMatrix;
+
+        varying vec2 vTexcoord;
+
+        void main() {
+            vTexcoord = texcoord;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+        `;
+
+  const fragmentShaderSource = `
+        precision mediump float;
+
+        varying vec2 vTexcoord;
+        uniform sampler2D uTexture;
+
+        void main() {
+            gl_FragColor = texture2D(uTexture, vTexcoord);
+        }
+        `;
+
+  function compileShader(type, source) {
+    const shader = gl.createShader(type);
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(shader));
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  }
+
+  const vertexShader = compileShader(gl.VERTEX_SHADER, vertexShaderSource);
+  const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragmentShaderSource);
+
+  const program = gl.createProgram();
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    console.error(gl.getProgramInfoLog(program));
+    gl.deleteProgram(program);
+  }
+
+  gl.useProgram(program);
+
+  // Torus erstellen
+  function createTorus(radius, tube, radialSegments, tubularSegments) {
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+
+    for (let j = 0; j <= radialSegments; j++) {
+      for (let i = 0; i <= tubularSegments; i++) {
+        const u = i / tubularSegments;
+        const v = j / radialSegments;
+
+        const theta = 2 * Math.PI * u;
+        const phi = 2 * Math.PI * v;
+
+        const x = (radius + tube * Math.cos(phi)) * Math.cos(theta);
+        const y = (radius + tube * Math.cos(phi)) * Math.sin(theta);
+        const z = tube * Math.sin(phi);
+
+        positions.push(x, y, z);
+        uvs.push(u, v);
+      }
+    }
+
+    for (let j = 1; j <= radialSegments; j++) {
+      for (let i = 1; i <= tubularSegments; i++) {
+        const a = (tubularSegments + 1) * j + i - 1;
+        const b = (tubularSegments + 1) * (j - 1) + i - 1;
+        const c = (tubularSegments + 1) * (j - 1) + i;
+        const d = (tubularSegments + 1) * j + i;
+
+        indices.push(a, b, d);
+        indices.push(b, c, d);
+      }
+    }
+
+    return {
+      positions: new Float32Array(positions),
+      uvs: new Float32Array(uvs),
+      indices: new Uint16Array(indices),
+    };
+  }
+
+  const torus = createTorus(0.7, 0.3, 32, 32);
+
+  const positionBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, torus.positions, gl.STATIC_DRAW);
+
+  const texcoordBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, torus.uvs, gl.STATIC_DRAW);
+
+  const indexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, torus.indices, gl.STATIC_DRAW);
+
+  const positionLocation = gl.getAttribLocation(program, 'position');
+  const texcoordLocation = gl.getAttribLocation(program, 'texcoord');
+
+  gl.enableVertexAttribArray(positionLocation);
+  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+  gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 0, 0);
+
+  gl.enableVertexAttribArray(texcoordLocation);
+  gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
+  gl.vertexAttribPointer(texcoordLocation, 2, gl.FLOAT, false, 0, 0);
+
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+
+  const image = new Image();
+  image.src = 'img/scaled_texture.jpg';
+  image.onload = () => {
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+
+    // Texturparameter anpassen für Nicht-Zweier-Potenzen, hier eher optional, da das Bild bereits zuvor skaliert wurde auf 512x512
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  };
+
+  const modelViewMatrix = mat4.create();
+  const projectionMatrix = mat4.create();
+
+  const modelViewMatrixLocation = gl.getUniformLocation(program, 'modelViewMatrix');
+  const projectionMatrixLocation = gl.getUniformLocation(program, 'projectionMatrix');
+
+  mat4.perspective(projectionMatrix, Math.PI / 4, canvas.width / canvas.height, 0.1, 100);
+
+  let cameraAngleX = 0;
+  let cameraAngleY = 0;
+
+  window.addEventListener('keydown', (e) => {
+    const step = 0.1;
+    if (e.key === 'ArrowUp') cameraAngleX -= step;
+    if (e.key === 'ArrowDown') cameraAngleX += step;
+    if (e.key === 'ArrowLeft') cameraAngleY -= step;
+    if (e.key === 'ArrowRight') cameraAngleY += step;
+  });
+
+  function render() {
+    mat4.identity(modelViewMatrix);
+    mat4.translate(modelViewMatrix, modelViewMatrix, [0, 0, -4]);
+    mat4.rotateX(modelViewMatrix, modelViewMatrix, cameraAngleX);
+    mat4.rotateY(modelViewMatrix, modelViewMatrix, cameraAngleY);
+
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+
+    gl.uniformMatrix4fv(modelViewMatrixLocation, false, modelViewMatrix);
+    gl.uniformMatrix4fv(projectionMatrixLocation, false, projectionMatrix);
+
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.drawElements(gl.TRIANGLES, torus.indices.length, gl.UNSIGNED_SHORT, 0);
+
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+</script>
+</body>
+</html>
